@@ -1,10 +1,10 @@
 // ============================================
-// Verification Middleware
+// Verification Middleware (Supabase)
 // ============================================
 // Blocks unverified companies from creating trips or shipments.
 // Must be used AFTER authenticate middleware.
 
-const db = require('../config/db');
+const { supabase } = require('../config/db');
 
 /**
  * Require company to be verified before allowing the action.
@@ -19,19 +19,18 @@ const requireVerified = async (req, res, next) => {
             });
         }
 
-        const result = await db.query(
-            'SELECT verified, verification_status FROM companies WHERE id = $1',
-            [req.user.companyId]
-        );
+        const { data: company, error } = await supabase
+            .from('companies')
+            .select('verified, verification_status')
+            .eq('id', req.user.companyId)
+            .single();
 
-        if (result.rows.length === 0) {
+        if (error || !company) {
             return res.status(404).json({
                 success: false,
                 message: 'Company not found.',
             });
         }
-
-        const company = result.rows[0];
 
         // Allow if either the old 'verified' flag or new 'verification_status' indicates verified
         const isVerified = company.verified === true || company.verification_status === 'verified';

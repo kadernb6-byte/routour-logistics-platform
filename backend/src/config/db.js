@@ -1,51 +1,38 @@
 // ============================================
-// PostgreSQL Database Connection
+// Supabase Client Configuration
 // ============================================
-// Uses the 'pg' library's Pool for connection pooling.
-// A pool reuses connections instead of creating a new one
-// for every query — critical for production performance.
+// Uses the Supabase JS client to connect via REST API (HTTPS).
+// This replaces the old pg Pool connection.
 
-const { Pool } = require('pg');
+const { createClient } = require('@supabase/supabase-js');
 const env = require('./env');
 
-const pool = new Pool({
-    host: env.DB_HOST,
-    port: env.DB_PORT,
-    database: env.DB_NAME,
-    user: env.DB_USER,
-    password: env.DB_PASSWORD,
-    // Pool configuration
-    max: 20,                    // Max number of connections
-    idleTimeoutMillis: 30000,   // Close idle connections after 30s
-    connectionTimeoutMillis: 5000, // Timeout if connection takes > 5s
-});
+if (!env.SUPABASE_URL || !env.SUPABASE_SERVICE_KEY) {
+    console.error('❌ SUPABASE_URL and SUPABASE_SERVICE_KEY must be set in .env');
+    process.exit(1);
+}
 
-// Log pool errors (don't crash the app)
-pool.on('error', (err) => {
-    console.error('❌ Unexpected database pool error:', err.message);
+const supabase = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_KEY, {
+    auth: {
+        autoRefreshToken: false,
+        persistSession: false,
+    },
 });
 
 /**
- * Test the database connection.
+ * Test the Supabase connection.
  * Called once on server startup.
  */
 const testConnection = async () => {
     try {
-        const client = await pool.connect();
-        const result = await client.query('SELECT NOW()');
-        client.release();
-        console.log('✅ Database connected:', result.rows[0].now);
+        const { data, error } = await supabase.from('companies').select('id').limit(1);
+        if (error) throw error;
+        console.log('✅ Supabase connected via REST API');
     } catch (error) {
-        console.warn('⚠️  Database connection failed:', error.message);
-        console.warn('   The API will start, but database features won\'t work.');
-        console.warn('   Make sure PostgreSQL is running and .env is configured.\n');
+        console.warn('⚠️  Supabase connection test failed:', error.message);
+        console.warn('   The API will start, but database features may not work.');
+        console.warn('   Make sure tables exist and .env is configured.\n');
     }
 };
 
-/**
- * Helper: run a query with parameters.
- * Usage: const { rows } = await db.query('SELECT * FROM users WHERE id = $1', [id]);
- */
-const query = (text, params) => pool.query(text, params);
-
-module.exports = { pool, query, testConnection };
+module.exports = { supabase, testConnection };

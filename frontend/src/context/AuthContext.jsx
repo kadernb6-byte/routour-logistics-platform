@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useEffect } from 'react';
-// import api from '../services/api'; // Disabled for DEMO MODE
+import api from '../services/api';
 
 const AuthContext = createContext(null);
 
@@ -29,41 +29,41 @@ export const AuthProvider = ({ children }) => {
         setLoading(false);
     }, []);
 
-    // ============ DEMO MODE — Fake Auth (no backend needed) ============
-    const login = async (email, _password) => {
-        const fakeUser = {
-            id: 'demo-user-001',
-            name: 'Guest User',
-            email: email,
-            companyName: 'Demo Company',
-            role: 'shipper',
-        };
-        const fakeToken = 'fake-jwt-token-demo';
+    const login = async (email, password) => {
+        try {
+            const response = await api.post('/auth/login', { email, password });
+            const { user: userData, token } = response.data;
 
-        localStorage.setItem('routeur_token', fakeToken);
-        localStorage.setItem('routeur_user', JSON.stringify(fakeUser));
-        setUser(fakeUser);
+            localStorage.setItem('routeur_token', token);
+            localStorage.setItem('routeur_user', JSON.stringify(userData));
+            setUser(userData);
 
-        return { success: true };
+            return { success: true };
+        } catch (error) {
+            return {
+                success: false,
+                message: error.response?.data?.message || 'Login failed',
+            };
+        }
     };
 
     const signup = async (data) => {
-        const fakeUser = {
-            id: 'demo-user-' + Date.now(),
-            name: data.companyName || 'New User',
-            email: data.email,
-            companyName: data.companyName || 'Demo Company',
-            role: data.role || 'shipper',
-        };
-        const fakeToken = 'fake-jwt-token-demo';
+        try {
+            const response = await api.post('/auth/signup', data);
+            const { user: userData, token } = response.data;
 
-        localStorage.setItem('routeur_token', fakeToken);
-        localStorage.setItem('routeur_user', JSON.stringify(fakeUser));
-        setUser(fakeUser);
+            localStorage.setItem('routeur_token', token);
+            localStorage.setItem('routeur_user', JSON.stringify(userData));
+            setUser(userData);
 
-        return { success: true };
+            return { success: true };
+        } catch (error) {
+            return {
+                success: false,
+                message: error.response?.data?.message || 'Signup failed',
+            };
+        }
     };
-    // ============ END DEMO MODE ============
 
     const logout = () => {
         localStorage.removeItem('routeur_token');

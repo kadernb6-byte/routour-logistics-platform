@@ -12,7 +12,7 @@ const morgan = require('morgan');
 const rateLimit = require('express-rate-limit');
 
 const env = require('./config/env');
-const { pool, testConnection } = require('./config/db');
+const { testConnection } = require('./config/db');
 const routes = require('./routes');
 const { errorHandler, notFound } = require('./middleware/errorHandler');
 

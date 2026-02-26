@@ -1,10 +1,9 @@
 // ============================================
-// Shipment Service
+// Shipment Service (Supabase)
 // ============================================
 // Business logic for shipment operations.
-// Shippers create shipments; carriers can browse and bid.
 
-const db = require('../config/db');
+const { supabase } = require('../config/db');
 
 /**
  * Create a new shipment (shipper only)
@@ -12,88 +11,77 @@ const db = require('../config/db');
 const createShipment = async (shipmentData, userId) => {
     const { title, description, origin, destination, weight, dimensions, pickupDate, deliveryDate, budget } = shipmentData;
 
-    const result = await db.query(
-        `INSERT INTO shipments (title, description, origin, destination, weight, dimensions, pickup_date, delivery_date, budget, shipper_id, status)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'pending')
-     RETURNING *`,
-        [title, description, origin, destination, weight, dimensions, pickupDate, deliveryDate, budget, userId]
-    );
+    const { data, error } = await supabase
+        .from('shipments')
+        .insert({
+            title,
+            description,
+            origin,
+            destination,
+            weight,
+            dimensions,
+            pickup_date: pickupDate,
+            delivery_date: deliveryDate,
+            budget,
+            shipper_id: userId,
+            status: 'pending',
+        })
+        .select()
+        .single();
 
-    return result.rows[0];
+    if (error) throw new Error(error.message);
+    return data;
 };
 
 /**
  * Get all shipments with optional filters
  */
 const getShipments = async ({ page = 1, limit = 10, status, origin, destination }) => {
-    let queryText = 'SELECT s.*, c.name as company_name FROM shipments s JOIN users u ON s.shipper_id = u.id JOIN companies c ON u.company_id = c.id';
-    const conditions = [];
-    const values = [];
-    let paramCount = 0;
+    let query = supabase
+        .from('shipments')
+        .select('*, users!shipper_id(company_id, companies(name))', { count: 'exact' });
 
-    if (status) {
-        paramCount++;
-        conditions.push(`s.status = $${paramCount}`);
-        values.push(status);
-    }
+    if (status) query = query.eq('status', status);
+    if (origin) query = query.ilike('origin', `%${origin}%`);
+    if (destination) query = query.ilike('destination', `%${destination}%`);
 
-    if (origin) {
-        paramCount++;
-        conditions.push(`LOWER(s.origin) LIKE LOWER($${paramCount})`);
-        values.push(`%${origin}%`);
-    }
-
-    if (destination) {
-        paramCount++;
-        conditions.push(`LOWER(s.destination) LIKE LOWER($${paramCount})`);
-        values.push(`%${destination}%`);
-    }
-
-    if (conditions.length > 0) {
-        queryText += ` WHERE ${conditions.join(' AND ')}`;
-    }
-
-    // Get total count
-    const countResult = await db.query(
-        `SELECT COUNT(*) FROM (${queryText}) as filtered`,
-        values
-    );
-    const total = parseInt(countResult.rows[0].count);
-
-    // Add pagination
     const offset = (page - 1) * limit;
-    paramCount++;
-    queryText += ` ORDER BY s.created_at DESC LIMIT $${paramCount}`;
-    values.push(limit);
-    paramCount++;
-    queryText += ` OFFSET $${paramCount}`;
-    values.push(offset);
+    query = query.order('created_at', { ascending: false }).range(offset, offset + limit - 1);
 
-    const result = await db.query(queryText, values);
+    const { data, error, count } = await query;
+    if (error) throw new Error(error.message);
 
-    return { shipments: result.rows, total };
+    // Flatten company_name from nested relation
+    const shipments = (data || []).map(s => ({
+        ...s,
+        company_name: s.users?.companies?.name || '',
+        users: undefined,
+    }));
+
+    return { shipments, total: count || 0 };
 };
 
 /**
  * Get a single shipment by ID
  */
 const getShipmentById = async (id) => {
-    const result = await db.query(
-        `SELECT s.*, c.name as company_name
-     FROM shipments s
-     JOIN users u ON s.shipper_id = u.id
-     JOIN companies c ON u.company_id = c.id
-     WHERE s.id = $1`,
-        [id]
-    );
+    const { data, error } = await supabase
+        .from('shipments')
+        .select('*, users!shipper_id(company_id, companies(name))')
+        .eq('id', id)
+        .single();
 
-    if (result.rows.length === 0) {
-        const error = new Error('Shipment not found');
-        error.statusCode = 404;
-        throw error;
+    if (error || !data) {
+        const err = new Error('Shipment not found');
+        err.statusCode = 404;
+        throw err;
     }
 
-    return result.rows[0];
+    return {
+        ...data,
+        company_name: data.users?.companies?.name || '',
+        users: undefined,
+    };
 };
 
 /**
@@ -101,18 +89,19 @@ const getShipmentById = async (id) => {
  */
 const updateShipment = async (id, updateData, userId) => {
     // Verify ownership
-    const existing = await db.query(
-        'SELECT shipper_id FROM shipments WHERE id = $1',
-        [id]
-    );
+    const { data: existing } = await supabase
+        .from('shipments')
+        .select('shipper_id')
+        .eq('id', id)
+        .single();
 
-    if (existing.rows.length === 0) {
+    if (!existing) {
         const error = new Error('Shipment not found');
         error.statusCode = 404;
         throw error;
     }
 
-    if (existing.rows[0].shipper_id !== userId) {
+    if (existing.shipper_id !== userId) {
         const error = new Error('Not authorized to update this shipment');
         error.statusCode = 403;
         throw error;
@@ -120,49 +109,55 @@ const updateShipment = async (id, updateData, userId) => {
 
     const { title, description, origin, destination, weight, dimensions, pickupDate, deliveryDate, budget, status } = updateData;
 
-    const result = await db.query(
-        `UPDATE shipments
-     SET title = COALESCE($1, title),
-         description = COALESCE($2, description),
-         origin = COALESCE($3, origin),
-         destination = COALESCE($4, destination),
-         weight = COALESCE($5, weight),
-         dimensions = COALESCE($6, dimensions),
-         pickup_date = COALESCE($7, pickup_date),
-         delivery_date = COALESCE($8, delivery_date),
-         budget = COALESCE($9, budget),
-         status = COALESCE($10, status),
-         updated_at = NOW()
-     WHERE id = $11
-     RETURNING *`,
-        [title, description, origin, destination, weight, dimensions, pickupDate, deliveryDate, budget, status, id]
-    );
+    // Build update object with only provided fields
+    const updates = {};
+    if (title !== undefined) updates.title = title;
+    if (description !== undefined) updates.description = description;
+    if (origin !== undefined) updates.origin = origin;
+    if (destination !== undefined) updates.destination = destination;
+    if (weight !== undefined) updates.weight = weight;
+    if (dimensions !== undefined) updates.dimensions = dimensions;
+    if (pickupDate !== undefined) updates.pickup_date = pickupDate;
+    if (deliveryDate !== undefined) updates.delivery_date = deliveryDate;
+    if (budget !== undefined) updates.budget = budget;
+    if (status !== undefined) updates.status = status;
 
-    return result.rows[0];
+    const { data, error } = await supabase
+        .from('shipments')
+        .update(updates)
+        .eq('id', id)
+        .select()
+        .single();
+
+    if (error) throw new Error(error.message);
+    return data;
 };
 
 /**
  * Delete a shipment
  */
 const deleteShipment = async (id, userId) => {
-    const existing = await db.query(
-        'SELECT shipper_id FROM shipments WHERE id = $1',
-        [id]
-    );
+    const { data: existing } = await supabase
+        .from('shipments')
+        .select('shipper_id')
+        .eq('id', id)
+        .single();
 
-    if (existing.rows.length === 0) {
+    if (!existing) {
         const error = new Error('Shipment not found');
         error.statusCode = 404;
         throw error;
     }
 
-    if (existing.rows[0].shipper_id !== userId) {
+    if (existing.shipper_id !== userId) {
         const error = new Error('Not authorized to delete this shipment');
         error.statusCode = 403;
         throw error;
     }
 
-    await db.query('DELETE FROM shipments WHERE id = $1', [id]);
+    const { error } = await supabase.from('shipments').delete().eq('id', id);
+    if (error) throw new Error(error.message);
+
     return { message: 'Shipment deleted successfully' };
 };
 

@@ -1,73 +1,65 @@
 // ============================================
-// Payment Service
+// Payment Service (Supabase)
 // ============================================
 // Core business logic for the payment & commission system.
-// This is where the platform MAKES MONEY.
-//
-// Flow:
-//   1. Shipper initiates payment for a shipment
-//   2. Platform calculates commission (default 10%)
-//   3. Payment recorded: pending → paid → completed
-//   4. Commission logged to platform_revenue ledger
 
-const db = require('../config/db');
+const { supabase } = require('../config/db');
 
-const COMMISSION_RATE = 0.10; // 10% — adjust per business model
+const COMMISSION_RATE = 0.10; // 10%
 
 /**
  * Create a payment for a shipment
- * Only the shipper (shipment owner) can initiate payment.
  */
 const createPayment = async (payerId, paymentData) => {
     const { shipment_id, payee_id, amount, payment_method, reference } = paymentData;
 
-    // ── Validate shipment exists and belongs to the payer ──
-    const shipment = await db.query(
-        `SELECT s.id, s.shipper_id, s.status, s.budget, s.title,
-                u.email as shipper_email
-         FROM shipments s
-         JOIN users u ON s.shipper_id = u.id
-         WHERE s.id = $1`,
-        [shipment_id]
-    );
+    // Validate shipment exists and belongs to the payer
+    const { data: shipments } = await supabase
+        .from('shipments')
+        .select('id, shipper_id, status, budget, title')
+        .eq('id', shipment_id)
+        .limit(1);
 
-    if (shipment.rows.length === 0) {
+    if (!shipments || shipments.length === 0) {
         const error = new Error('Shipment not found');
         error.statusCode = 404;
         throw error;
     }
 
-    if (shipment.rows[0].shipper_id !== payerId) {
+    if (shipments[0].shipper_id !== payerId) {
         const error = new Error('Only the shipment owner can initiate payment');
         error.statusCode = 403;
         throw error;
     }
 
-    // ── Check for duplicate payment ──
-    const existing = await db.query(
-        'SELECT id FROM payments WHERE shipment_id = $1 AND status NOT IN ($2, $3)',
-        [shipment_id, 'failed', 'refunded']
-    );
+    // Check for duplicate payment
+    const { data: existing } = await supabase
+        .from('payments')
+        .select('id')
+        .eq('shipment_id', shipment_id)
+        .not('status', 'in', '("failed","refunded")')
+        .limit(1);
 
-    if (existing.rows.length > 0) {
+    if (existing && existing.length > 0) {
         const error = new Error('Payment already exists for this shipment');
         error.statusCode = 409;
         throw error;
     }
 
-    // ── Validate payee exists and is a carrier ──
-    const payee = await db.query(
-        'SELECT id, role FROM users WHERE id = $1',
-        [payee_id]
-    );
+    // Validate payee exists
+    const { data: payee } = await supabase
+        .from('users')
+        .select('id, role')
+        .eq('id', payee_id)
+        .single();
 
-    if (payee.rows.length === 0) {
+    if (!payee) {
         const error = new Error('Payee (carrier) not found');
         error.statusCode = 404;
         throw error;
     }
 
-    // ── Calculate commission ──
+    // Calculate commission
     const paymentAmount = parseFloat(amount);
     if (isNaN(paymentAmount) || paymentAmount <= 0) {
         const error = new Error('Invalid payment amount');
@@ -78,30 +70,41 @@ const createPayment = async (payerId, paymentData) => {
     const commission = Math.round(paymentAmount * COMMISSION_RATE * 100) / 100;
     const netAmount = Math.round((paymentAmount - commission) * 100) / 100;
 
-    // ── Create payment record ──
-    const result = await db.query(
-        `INSERT INTO payments
-            (shipment_id, payer_id, payee_id, amount, commission_rate, commission, net_amount, payment_method, reference, status, payment_date)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'paid', NOW())
-         RETURNING *`,
-        [shipment_id, payerId, payee_id, paymentAmount, COMMISSION_RATE, commission, netAmount,
-            payment_method || 'platform', reference || null]
-    );
+    // Create payment record
+    const { data: payment, error: payError } = await supabase
+        .from('payments')
+        .insert({
+            shipment_id,
+            payer_id: payerId,
+            payee_id,
+            amount: paymentAmount,
+            commission_rate: COMMISSION_RATE,
+            commission,
+            net_amount: netAmount,
+            payment_method: payment_method || 'platform',
+            reference: reference || null,
+            status: 'paid',
+            payment_date: new Date().toISOString(),
+        })
+        .select()
+        .single();
 
-    const payment = result.rows[0];
+    if (payError) throw new Error(payError.message);
 
-    // ── Log platform revenue ──
-    await db.query(
-        `INSERT INTO platform_revenue (payment_id, amount, description)
-         VALUES ($1, $2, $3)`,
-        [payment.id, commission, `Commission on shipment "${shipment.rows[0].title}" (${COMMISSION_RATE * 100}%)`]
-    );
+    // Log platform revenue
+    await supabase
+        .from('platform_revenue')
+        .insert({
+            payment_id: payment.id,
+            amount: commission,
+            description: `Commission on shipment "${shipments[0].title}" (${COMMISSION_RATE * 100}%)`,
+        });
 
-    // ── Update shipment status to in_transit ──
-    await db.query(
-        `UPDATE shipments SET status = 'in_transit' WHERE id = $1`,
-        [shipment_id]
-    );
+    // Update shipment status to in_transit
+    await supabase
+        .from('shipments')
+        .update({ status: 'in_transit' })
+        .eq('id', shipment_id);
 
     return payment;
 };
@@ -110,138 +113,206 @@ const createPayment = async (payerId, paymentData) => {
  * Get payment by ID with full details
  */
 const getPaymentById = async (paymentId, userId) => {
-    const result = await db.query(
-        `SELECT p.*,
-                s.title as shipment_title, s.origin, s.destination,
-                payer.email as payer_email, payer_co.name as payer_company,
-                payee.email as payee_email, payee_co.name as payee_company
-         FROM payments p
-         JOIN shipments s ON p.shipment_id = s.id
-         JOIN users payer ON p.payer_id = payer.id
-         JOIN companies payer_co ON payer.company_id = payer_co.id
-         JOIN users payee ON p.payee_id = payee.id
-         JOIN companies payee_co ON payee.company_id = payee_co.id
-         WHERE p.id = $1 AND (p.payer_id = $2 OR p.payee_id = $2)`,
-        [paymentId, userId]
-    );
+    const { data, error } = await supabase
+        .from('payments')
+        .select(`
+            *,
+            shipments(title, origin, destination),
+            payer:users!payer_id(email, companies(name)),
+            payee:users!payee_id(email, companies(name))
+        `)
+        .eq('id', paymentId)
+        .or(`payer_id.eq.${userId},payee_id.eq.${userId}`)
+        .single();
 
-    if (result.rows.length === 0) {
-        const error = new Error('Payment not found');
-        error.statusCode = 404;
-        throw error;
+    if (error || !data) {
+        const err = new Error('Payment not found');
+        err.statusCode = 404;
+        throw err;
     }
 
-    return result.rows[0];
+    return {
+        ...data,
+        shipment_title: data.shipments?.title,
+        origin: data.shipments?.origin,
+        destination: data.shipments?.destination,
+        payer_email: data.payer?.email,
+        payer_company: data.payer?.companies?.name,
+        payee_email: data.payee?.email,
+        payee_company: data.payee?.companies?.name,
+        shipments: undefined,
+        payer: undefined,
+        payee: undefined,
+    };
 };
 
 /**
  * Get all payments for a user (as payer or payee)
  */
 const getUserPayments = async (userId, filters = {}) => {
-    let query = `
-        SELECT p.*,
-               s.title as shipment_title, s.origin, s.destination,
-               payer.email as payer_email, payer_co.name as payer_company,
-               payee.email as payee_email, payee_co.name as payee_company
-        FROM payments p
-        JOIN shipments s ON p.shipment_id = s.id
-        JOIN users payer ON p.payer_id = payer.id
-        JOIN companies payer_co ON payer.company_id = payer_co.id
-        JOIN users payee ON p.payee_id = payee.id
-        JOIN companies payee_co ON payee.company_id = payee_co.id
-        WHERE (p.payer_id = $1 OR p.payee_id = $1)
-    `;
-    const params = [userId];
-    let paramIndex = 2;
+    let query = supabase
+        .from('payments')
+        .select(`
+            *,
+            shipments(title, origin, destination),
+            payer:users!payer_id(email, companies(name)),
+            payee:users!payee_id(email, companies(name))
+        `)
+        .or(`payer_id.eq.${userId},payee_id.eq.${userId}`);
 
-    if (filters.status) {
-        query += ` AND p.status = $${paramIndex}`;
-        params.push(filters.status);
-        paramIndex++;
-    }
+    if (filters.status) query = query.eq('status', filters.status);
 
-    query += ' ORDER BY p.created_at DESC';
+    query = query.order('created_at', { ascending: false });
 
-    const result = await db.query(query, params);
-    return result.rows;
+    const { data, error } = await query;
+    if (error) throw new Error(error.message);
+
+    return (data || []).map(p => ({
+        ...p,
+        shipment_title: p.shipments?.title,
+        origin: p.shipments?.origin,
+        destination: p.shipments?.destination,
+        payer_email: p.payer?.email,
+        payer_company: p.payer?.companies?.name,
+        payee_email: p.payee?.email,
+        payee_company: p.payee?.companies?.name,
+        shipments: undefined,
+        payer: undefined,
+        payee: undefined,
+    }));
 };
 
 /**
- * Confirm/complete a payment (carrier confirms delivery received)
+ * Confirm/complete a payment
  */
 const completePayment = async (paymentId, userId) => {
-    // Only the payee (carrier) can confirm
-    const payment = await db.query(
-        'SELECT * FROM payments WHERE id = $1 AND payee_id = $2 AND status = $3',
-        [paymentId, userId, 'paid']
-    );
+    const { data: existing } = await supabase
+        .from('payments')
+        .select('*')
+        .eq('id', paymentId)
+        .eq('payee_id', userId)
+        .eq('status', 'paid')
+        .single();
 
-    if (payment.rows.length === 0) {
+    if (!existing) {
         const error = new Error('Payment not found or cannot be completed');
         error.statusCode = 404;
         throw error;
     }
 
-    const result = await db.query(
-        `UPDATE payments SET status = 'completed', completed_at = NOW()
-         WHERE id = $1 RETURNING *`,
-        [paymentId]
-    );
+    const { data, error } = await supabase
+        .from('payments')
+        .update({ status: 'completed', completed_at: new Date().toISOString() })
+        .eq('id', paymentId)
+        .select()
+        .single();
+
+    if (error) throw new Error(error.message);
 
     // Update shipment to delivered
-    await db.query(
-        `UPDATE shipments SET status = 'delivered' WHERE id = $1`,
-        [payment.rows[0].shipment_id]
-    );
+    await supabase
+        .from('shipments')
+        .update({ status: 'delivered' })
+        .eq('id', existing.shipment_id);
 
-    return result.rows[0];
+    return data;
 };
 
 /**
  * Get payment summary/stats for a user
  */
 const getPaymentStats = async (userId) => {
-    const result = await db.query(
-        `SELECT
-            COUNT(*) FILTER (WHERE payer_id = $1) as total_paid,
-            COUNT(*) FILTER (WHERE payee_id = $1) as total_received,
-            COALESCE(SUM(amount) FILTER (WHERE payer_id = $1 AND status IN ('paid','completed')), 0) as total_spent,
-            COALESCE(SUM(net_amount) FILTER (WHERE payee_id = $1 AND status IN ('paid','completed')), 0) as total_earned,
-            COUNT(*) FILTER (WHERE status = 'pending') as pending_count,
-            COUNT(*) FILTER (WHERE status = 'paid') as active_count,
-            COUNT(*) FILTER (WHERE status = 'completed') as completed_count
-         FROM payments
-         WHERE payer_id = $1 OR payee_id = $1`,
-        [userId]
-    );
+    // Get all payments for this user
+    const { data: payments, error } = await supabase
+        .from('payments')
+        .select('payer_id, payee_id, amount, net_amount, status')
+        .or(`payer_id.eq.${userId},payee_id.eq.${userId}`);
 
-    return result.rows[0];
+    if (error) throw new Error(error.message);
+
+    const stats = {
+        total_paid: 0,
+        total_received: 0,
+        total_spent: '0',
+        total_earned: '0',
+        pending_count: 0,
+        active_count: 0,
+        completed_count: 0,
+    };
+
+    let totalSpent = 0;
+    let totalEarned = 0;
+
+    (payments || []).forEach(p => {
+        if (p.payer_id === userId) {
+            stats.total_paid++;
+            if (['paid', 'completed'].includes(p.status)) {
+                totalSpent += parseFloat(p.amount) || 0;
+            }
+        }
+        if (p.payee_id === userId) {
+            stats.total_received++;
+            if (['paid', 'completed'].includes(p.status)) {
+                totalEarned += parseFloat(p.net_amount) || 0;
+            }
+        }
+        if (p.status === 'pending') stats.pending_count++;
+        if (p.status === 'paid') stats.active_count++;
+        if (p.status === 'completed') stats.completed_count++;
+    });
+
+    stats.total_spent = totalSpent.toFixed(2);
+    stats.total_earned = totalEarned.toFixed(2);
+
+    return stats;
 };
 
 /**
- * Get platform revenue stats (admin)
+ * Get platform revenue stats
  */
 const getPlatformRevenue = async () => {
-    const revenue = await db.query(
-        `SELECT
-            COUNT(*) as total_transactions,
-            COALESCE(SUM(amount), 0) as total_revenue,
-            COALESCE(SUM(amount) FILTER (WHERE created_at >= NOW() - INTERVAL '30 days'), 0) as revenue_30d,
-            COALESCE(SUM(amount) FILTER (WHERE created_at >= NOW() - INTERVAL '7 days'), 0) as revenue_7d
-         FROM platform_revenue`
-    );
+    const { data: revenueData, error: revError } = await supabase
+        .from('platform_revenue')
+        .select('amount, created_at');
 
-    const recentPayments = await db.query(
-        `SELECT p.*, s.title as shipment_title
-         FROM payments p
-         JOIN shipments s ON p.shipment_id = s.id
-         ORDER BY p.created_at DESC
-         LIMIT 10`
-    );
+    if (revError) throw new Error(revError.message);
+
+    const now = new Date();
+    const thirtyDaysAgo = new Date(now - 30 * 24 * 60 * 60 * 1000);
+    const sevenDaysAgo = new Date(now - 7 * 24 * 60 * 60 * 1000);
+
+    let totalRevenue = 0;
+    let revenue30d = 0;
+    let revenue7d = 0;
+
+    (revenueData || []).forEach(r => {
+        const amt = parseFloat(r.amount) || 0;
+        totalRevenue += amt;
+        const createdAt = new Date(r.created_at);
+        if (createdAt >= thirtyDaysAgo) revenue30d += amt;
+        if (createdAt >= sevenDaysAgo) revenue7d += amt;
+    });
+
+    const { data: recentPayments, error: rpError } = await supabase
+        .from('payments')
+        .select('*, shipments(title)')
+        .order('created_at', { ascending: false })
+        .limit(10);
+
+    if (rpError) throw new Error(rpError.message);
 
     return {
-        stats: revenue.rows[0],
-        recentPayments: recentPayments.rows,
+        stats: {
+            total_transactions: (revenueData || []).length,
+            total_revenue: totalRevenue.toFixed(2),
+            revenue_30d: revenue30d.toFixed(2),
+            revenue_7d: revenue7d.toFixed(2),
+        },
+        recentPayments: (recentPayments || []).map(p => ({
+            ...p,
+            shipment_title: p.shipments?.title,
+            shipments: undefined,
+        })),
     };
 };
 

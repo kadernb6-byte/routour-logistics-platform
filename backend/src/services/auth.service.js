@@ -1,12 +1,11 @@
 // ============================================
-// Auth Service
+// Auth Service (Supabase)
 // ============================================
-// Business logic for authentication.
-// Services contain the "brain" — controllers just call services.
+// Business logic for authentication using Supabase JS client.
 
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const db = require('../config/db');
+const { supabase } = require('../config/db');
 const env = require('../config/env');
 
 /**
@@ -30,37 +29,43 @@ const generateToken = (user) => {
  */
 const signup = async ({ email, password, companyName, role }) => {
     // Check if user already exists
-    const existing = await db.query(
-        'SELECT id FROM users WHERE email = $1',
-        [email]
-    );
+    const { data: existing } = await supabase
+        .from('users')
+        .select('id')
+        .eq('email', email)
+        .limit(1);
 
-    if (existing.rows.length > 0) {
+    if (existing && existing.length > 0) {
         const error = new Error('Email already registered');
         error.statusCode = 409;
         throw error;
     }
 
-    // Hash the password (salt rounds = 12)
+    // Hash the password
     const hashedPassword = await bcrypt.hash(password, 12);
 
     // Create the company first
-    const companyResult = await db.query(
-        `INSERT INTO companies (name, type)
-     VALUES ($1, $2)
-     RETURNING id, name, type`,
-        [companyName, role]
-    );
-    const company = companyResult.rows[0];
+    const { data: company, error: companyError } = await supabase
+        .from('companies')
+        .insert({ name: companyName, type: role })
+        .select('id, name, type')
+        .single();
+
+    if (companyError) throw new Error(companyError.message);
 
     // Create the user linked to the company
-    const userResult = await db.query(
-        `INSERT INTO users (email, password_hash, role, company_id)
-     VALUES ($1, $2, $3, $4)
-     RETURNING id, email, first_name, last_name, role, company_id, created_at`,
-        [email, hashedPassword, role, company.id]
-    );
-    const user = userResult.rows[0];
+    const { data: user, error: userError } = await supabase
+        .from('users')
+        .insert({
+            email,
+            password_hash: hashedPassword,
+            role,
+            company_id: company.id,
+        })
+        .select('id, email, first_name, last_name, role, company_id, created_at')
+        .single();
+
+    if (userError) throw new Error(userError.message);
 
     // Generate token
     const token = generateToken(user);
@@ -84,29 +89,28 @@ const signup = async ({ email, password, companyName, role }) => {
  */
 const login = async ({ email, password }) => {
     // Find user with company info
-    const result = await db.query(
-        `SELECT u.id, u.email, u.password_hash, u.first_name, u.last_name, u.role, u.company_id,
-            c.name as company_name
-     FROM users u
-     JOIN companies c ON u.company_id = c.id
-     WHERE u.email = $1`,
-        [email]
-    );
+    const { data: users, error } = await supabase
+        .from('users')
+        .select('id, email, password_hash, first_name, last_name, role, company_id, companies(name)')
+        .eq('email', email)
+        .limit(1);
 
-    if (result.rows.length === 0) {
-        const error = new Error('Invalid email or password');
-        error.statusCode = 401;
-        throw error;
+    if (error) throw new Error(error.message);
+
+    if (!users || users.length === 0) {
+        const err = new Error('Invalid email or password');
+        err.statusCode = 401;
+        throw err;
     }
 
-    const user = result.rows[0];
+    const user = users[0];
 
     // Compare password
     const isMatch = await bcrypt.compare(password, user.password_hash);
     if (!isMatch) {
-        const error = new Error('Invalid email or password');
-        error.statusCode = 401;
-        throw error;
+        const err = new Error('Invalid email or password');
+        err.statusCode = 401;
+        throw err;
     }
 
     // Generate token
@@ -120,7 +124,7 @@ const login = async ({ email, password }) => {
             lastName: user.last_name || '',
             role: user.role,
             companyId: user.company_id,
-            companyName: user.company_name,
+            companyName: user.companies?.name || '',
         },
         token,
     };
@@ -130,22 +134,26 @@ const login = async ({ email, password }) => {
  * Get current user profile
  */
 const getProfile = async (userId) => {
-    const result = await db.query(
-        `SELECT u.id, u.email, u.role, u.company_id, u.created_at,
-            c.name as company_name, c.type as company_type
-     FROM users u
-     JOIN companies c ON u.company_id = c.id
-     WHERE u.id = $1`,
-        [userId]
-    );
+    const { data: users, error } = await supabase
+        .from('users')
+        .select('id, email, role, company_id, created_at, companies(name, type)')
+        .eq('id', userId)
+        .limit(1);
 
-    if (result.rows.length === 0) {
-        const error = new Error('User not found');
-        error.statusCode = 404;
-        throw error;
+    if (error) throw new Error(error.message);
+
+    if (!users || users.length === 0) {
+        const err = new Error('User not found');
+        err.statusCode = 404;
+        throw err;
     }
 
-    return result.rows[0];
+    const user = users[0];
+    return {
+        ...user,
+        company_name: user.companies?.name,
+        company_type: user.companies?.type,
+    };
 };
 
 module.exports = { signup, login, getProfile };
