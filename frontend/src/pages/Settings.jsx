@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useLang } from '../context/LangContext';
-import api from '../services/api';
+import { supabase } from '../services/supabaseClient';
+import bcrypt from 'bcryptjs';
 import {
     User, Lock, Mail, Phone, Shield, AlertTriangle,
     Save, Eye, EyeOff, Check, X, Loader2, Building2,
@@ -54,12 +55,21 @@ export default function Settings() {
 
     const fetchProfile = async () => {
         try {
-            const res = await api.get('/settings/profile');
-            const p = res.data.data || res.data;
-            setProfile(p);
-            setFirstName(p.first_name || '');
-            setLastName(p.last_name || '');
-            setPhone(p.phone || '');
+            if (!user?.id) return;
+            const { data, error } = await supabase
+                .from('users')
+                .select('id, email, first_name, last_name, phone, role, created_at, company_id, companies(name)')
+                .eq('id', user.id)
+                .single();
+
+            if (error) throw error;
+            setProfile({
+                ...data,
+                company_name: data.companies?.name || '',
+            });
+            setFirstName(data.first_name || '');
+            setLastName(data.last_name || '');
+            setPhone(data.phone || '');
         } catch (err) {
             console.error('Failed to load profile', err);
         } finally {
@@ -73,21 +83,19 @@ export default function Settings() {
         setProfileSaving(true);
         setProfileMsg(null);
         try {
-            await api.put('/settings/profile', {
-                firstName, lastName, phone,
-            });
-            setProfileMsg({ type: 'success', text: 'Profile updated successfully!' });
-            // Re-fetch profile so the info card updates
+            const { error } = await supabase
+                .from('users')
+                .update({ first_name: firstName, last_name: lastName, phone })
+                .eq('id', user.id);
+
+            if (error) throw error;
+            setProfileMsg({ type: 'success', text: t('profileUpdated') });
             await fetchProfile();
-            // Update stored user in localStorage/context
             if (updateUser) {
                 updateUser({ ...user, firstName, lastName, phone });
             }
         } catch (err) {
-            setProfileMsg({
-                type: 'error',
-                text: err.response?.data?.message || 'Failed to update profile',
-            });
+            setProfileMsg({ type: 'error', text: err.message || t('profileUpdateFailed') });
         } finally {
             setProfileSaving(false);
         }
@@ -97,26 +105,44 @@ export default function Settings() {
     const handleChangePassword = async (e) => {
         e.preventDefault();
         if (newPassword !== confirmPassword) {
-            setPasswordMsg({ type: 'error', text: 'Passwords do not match' });
+            setPasswordMsg({ type: 'error', text: t('passwordsNoMatch') });
             return;
         }
         if (newPassword.length < 6) {
-            setPasswordMsg({ type: 'error', text: 'Password must be at least 6 characters' });
+            setPasswordMsg({ type: 'error', text: t('passwordTooShort') });
             return;
         }
         setPasswordSaving(true);
         setPasswordMsg(null);
         try {
-            await api.put('/settings/password', { currentPassword, newPassword });
-            setPasswordMsg({ type: 'success', text: 'Password changed successfully!' });
+            // Verify current password
+            const { data: userData } = await supabase
+                .from('users')
+                .select('password_hash')
+                .eq('id', user.id)
+                .single();
+
+            const isMatch = await bcrypt.compare(currentPassword, userData.password_hash);
+            if (!isMatch) {
+                setPasswordMsg({ type: 'error', text: t('wrongPassword') });
+                setPasswordSaving(false);
+                return;
+            }
+
+            // Hash and update
+            const hash = await bcrypt.hash(newPassword, 10);
+            const { error } = await supabase
+                .from('users')
+                .update({ password_hash: hash })
+                .eq('id', user.id);
+
+            if (error) throw error;
+            setPasswordMsg({ type: 'success', text: t('passwordChanged') });
             setCurrentPassword('');
             setNewPassword('');
             setConfirmPassword('');
         } catch (err) {
-            setPasswordMsg({
-                type: 'error',
-                text: err.response?.data?.message || 'Failed to change password',
-            });
+            setPasswordMsg({ type: 'error', text: err.message || t('passwordChangeFailed') });
         } finally {
             setPasswordSaving(false);
         }
@@ -126,22 +152,38 @@ export default function Settings() {
     const handleChangeEmail = async (e) => {
         e.preventDefault();
         if (!newEmail || !emailPassword) {
-            setEmailMsg({ type: 'error', text: 'Please fill all fields' });
+            setEmailMsg({ type: 'error', text: t('fillAllFields') });
             return;
         }
         setEmailSaving(true);
         setEmailMsg(null);
         try {
-            await api.put('/settings/email', { newEmail, password: emailPassword });
-            setEmailMsg({ type: 'success', text: 'Email changed successfully! Please log in again.' });
+            // Verify password
+            const { data: userData } = await supabase
+                .from('users')
+                .select('password_hash')
+                .eq('id', user.id)
+                .single();
+
+            const isMatch = await bcrypt.compare(emailPassword, userData.password_hash);
+            if (!isMatch) {
+                setEmailMsg({ type: 'error', text: t('wrongPassword') });
+                setEmailSaving(false);
+                return;
+            }
+
+            const { error } = await supabase
+                .from('users')
+                .update({ email: newEmail })
+                .eq('id', user.id);
+
+            if (error) throw error;
+            setEmailMsg({ type: 'success', text: t('emailChanged') });
             setNewEmail('');
             setEmailPassword('');
             setTimeout(() => logout(), 2000);
         } catch (err) {
-            setEmailMsg({
-                type: 'error',
-                text: err.response?.data?.message || 'Failed to change email',
-            });
+            setEmailMsg({ type: 'error', text: err.message || t('emailChangeFailed') });
         } finally {
             setEmailSaving(false);
         }
@@ -153,16 +195,40 @@ export default function Settings() {
         setDeactivating(true);
         setDeactivateMsg(null);
         try {
-            await api.delete('/settings/account', { data: { password: deactivatePassword } });
-            setDeactivateMsg({ type: 'success', text: 'Account deactivated. Logging out...' });
+            const { data: userData } = await supabase
+                .from('users')
+                .select('password_hash')
+                .eq('id', user.id)
+                .single();
+
+            const isMatch = await bcrypt.compare(deactivatePassword, userData.password_hash);
+            if (!isMatch) {
+                setDeactivateMsg({ type: 'error', text: t('wrongPassword') });
+                setDeactivating(false);
+                return;
+            }
+
+            const { error } = await supabase
+                .from('users')
+                .delete()
+                .eq('id', user.id);
+
+            if (error) throw error;
+            setDeactivateMsg({ type: 'success', text: t('accountDeactivated') });
             setTimeout(() => logout(), 2000);
         } catch (err) {
-            setDeactivateMsg({
-                type: 'error',
-                text: err.response?.data?.message || 'Failed to deactivate',
-            });
+            setDeactivateMsg({ type: 'error', text: err.message || t('deactivateFailed') });
         } finally {
             setDeactivating(false);
+        }
+    };
+
+    const formatDate = (dateStr) => {
+        if (!dateStr) return '—';
+        try {
+            return new Date(dateStr).toLocaleDateString();
+        } catch {
+            return '—';
         }
     };
 
@@ -170,22 +236,22 @@ export default function Settings() {
         return (
             <div className="dashboard-loading">
                 <Loader2 size={40} className="spinner" />
-                <p>Loading settings...</p>
+                <p>{t('loading')}</p>
             </div>
         );
     }
 
     const tabs = [
-        { id: 'profile', label: 'Profile', icon: User },
-        { id: 'security', label: 'Security', icon: Shield },
-        { id: 'danger', label: 'Danger Zone', icon: AlertTriangle },
+        { id: 'profile', label: t('profileTab'), icon: User },
+        { id: 'security', label: t('securityTab'), icon: Shield },
+        { id: 'danger', label: t('dangerZone'), icon: AlertTriangle },
     ];
 
     return (
         <div className="settings-page animate-fadeIn">
             <div className="settings-header">
-                <h1>⚙️ Settings</h1>
-                <p>Manage your account, security, and preferences</p>
+                <h1>⚙️ {t('settings')}</h1>
+                <p>{t('settingsDesc')}</p>
             </div>
 
             <div className="settings-layout">
@@ -220,12 +286,12 @@ export default function Settings() {
                                 <div className="settings-info-details">
                                     <h3>{firstName} {lastName}</h3>
                                     <span className="settings-role-badge">
-                                        {user?.role === 'carrier' ? '🚛 Carrier' : '📦 Shipper'}
+                                        {user?.role === 'carrier' ? `🚛 ${t('carrier')}` : `📦 ${t('shipper')}`}
                                     </span>
                                     <div className="settings-meta">
                                         <span><Mail size={14} /> {profile?.email}</span>
-                                        <span><Building2 size={14} /> {profile?.company_name}</span>
-                                        <span><Calendar size={14} /> Member since {new Date(profile?.created_at).toLocaleDateString()}</span>
+                                        <span><Building2 size={14} /> {profile?.company_name || user?.companyName}</span>
+                                        <span><Calendar size={14} /> {t('memberSince')} {formatDate(profile?.created_at)}</span>
                                     </div>
                                 </div>
                             </div>
@@ -233,9 +299,9 @@ export default function Settings() {
                             {/* Edit Profile Form */}
                             <div className="settings-card">
                                 <h2 className="settings-card-title">
-                                    <User size={20} /> Personal Information
+                                    <User size={20} /> {t('personalInfo')}
                                 </h2>
-                                <p className="settings-card-desc">Update your name and contact details</p>
+                                <p className="settings-card-desc">{t('personalInfoDesc')}</p>
 
                                 {profileMsg && (
                                     <div className={`settings-msg settings-msg-${profileMsg.type}`}>
@@ -247,58 +313,29 @@ export default function Settings() {
                                 <form onSubmit={handleSaveProfile} className="settings-form">
                                     <div className="settings-form-row">
                                         <div className="settings-field">
-                                            <label>First Name</label>
-                                            <input
-                                                type="text"
-                                                value={firstName}
-                                                onChange={(e) => setFirstName(e.target.value)}
-                                                placeholder="Enter first name"
-                                                className="settings-input"
-                                            />
+                                            <label>{t('firstName')}</label>
+                                            <input type="text" value={firstName} onChange={(e) => setFirstName(e.target.value)} placeholder={t('firstName')} className="settings-input" />
                                         </div>
                                         <div className="settings-field">
-                                            <label>Last Name</label>
-                                            <input
-                                                type="text"
-                                                value={lastName}
-                                                onChange={(e) => setLastName(e.target.value)}
-                                                placeholder="Enter last name"
-                                                className="settings-input"
-                                            />
+                                            <label>{t('lastName')}</label>
+                                            <input type="text" value={lastName} onChange={(e) => setLastName(e.target.value)} placeholder={t('lastName')} className="settings-input" />
                                         </div>
                                     </div>
 
                                     <div className="settings-field">
-                                        <label><Phone size={14} /> Phone Number</label>
-                                        <input
-                                            type="tel"
-                                            value={phone}
-                                            onChange={(e) => setPhone(e.target.value)}
-                                            placeholder="+213 XXX XXX XXX"
-                                            className="settings-input"
-                                        />
+                                        <label><Phone size={14} /> {t('phone')}</label>
+                                        <input type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+213 XXX XXX XXX" className="settings-input" />
                                     </div>
 
                                     <div className="settings-field">
-                                        <label><Mail size={14} /> Email Address</label>
-                                        <input
-                                            type="email"
-                                            value={profile?.email || ''}
-                                            disabled
-                                            className="settings-input settings-input-disabled"
-                                        />
-                                        <span className="settings-field-hint">
-                                            To change your email, go to the Security tab
-                                        </span>
+                                        <label><Mail size={14} /> {t('email')}</label>
+                                        <input type="email" value={profile?.email || ''} disabled className="settings-input settings-input-disabled" />
+                                        <span className="settings-field-hint">{t('emailChangeHint')}</span>
                                     </div>
 
-                                    <button
-                                        type="submit"
-                                        className="settings-btn settings-btn-primary"
-                                        disabled={profileSaving}
-                                    >
+                                    <button type="submit" className="settings-btn settings-btn-primary" disabled={profileSaving}>
                                         {profileSaving ? <Loader2 size={16} className="spinner" /> : <Save size={16} />}
-                                        {profileSaving ? 'Saving...' : 'Save Changes'}
+                                        {profileSaving ? t('loading') : t('saveChanges')}
                                     </button>
                                 </form>
                             </div>
@@ -311,9 +348,9 @@ export default function Settings() {
                             {/* Change Password */}
                             <div className="settings-card">
                                 <h2 className="settings-card-title">
-                                    <Lock size={20} /> Change Password
+                                    <Lock size={20} /> {t('changePassword')}
                                 </h2>
-                                <p className="settings-card-desc">Use a strong password with at least 6 characters</p>
+                                <p className="settings-card-desc">{t('passwordDesc')}</p>
 
                                 {passwordMsg && (
                                     <div className={`settings-msg settings-msg-${passwordMsg.type}`}>
@@ -324,21 +361,10 @@ export default function Settings() {
 
                                 <form onSubmit={handleChangePassword} className="settings-form">
                                     <div className="settings-field">
-                                        <label>Current Password</label>
+                                        <label>{t('currentPassword')}</label>
                                         <div className="settings-input-group">
-                                            <input
-                                                type={showCurrentPw ? 'text' : 'password'}
-                                                value={currentPassword}
-                                                onChange={(e) => setCurrentPassword(e.target.value)}
-                                                placeholder="Enter current password"
-                                                className="settings-input"
-                                                required
-                                            />
-                                            <button
-                                                type="button"
-                                                className="settings-input-toggle"
-                                                onClick={() => setShowCurrentPw(!showCurrentPw)}
-                                            >
+                                            <input type={showCurrentPw ? 'text' : 'password'} value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} placeholder={t('currentPassword')} className="settings-input" required />
+                                            <button type="button" className="settings-input-toggle" onClick={() => setShowCurrentPw(!showCurrentPw)}>
                                                 {showCurrentPw ? <EyeOff size={16} /> : <Eye size={16} />}
                                             </button>
                                         </div>
@@ -346,79 +372,40 @@ export default function Settings() {
 
                                     <div className="settings-form-row">
                                         <div className="settings-field">
-                                            <label>New Password</label>
+                                            <label>{t('newPassword')}</label>
                                             <div className="settings-input-group">
-                                                <input
-                                                    type={showNewPw ? 'text' : 'password'}
-                                                    value={newPassword}
-                                                    onChange={(e) => setNewPassword(e.target.value)}
-                                                    placeholder="New password"
-                                                    className="settings-input"
-                                                    required
-                                                    minLength={6}
-                                                />
-                                                <button
-                                                    type="button"
-                                                    className="settings-input-toggle"
-                                                    onClick={() => setShowNewPw(!showNewPw)}
-                                                >
+                                                <input type={showNewPw ? 'text' : 'password'} value={newPassword} onChange={(e) => setNewPassword(e.target.value)} placeholder={t('newPassword')} className="settings-input" required minLength={6} />
+                                                <button type="button" className="settings-input-toggle" onClick={() => setShowNewPw(!showNewPw)}>
                                                     {showNewPw ? <EyeOff size={16} /> : <Eye size={16} />}
                                                 </button>
                                             </div>
                                         </div>
                                         <div className="settings-field">
-                                            <label>Confirm New Password</label>
+                                            <label>{t('confirmPassword')}</label>
                                             <div className="settings-input-group">
-                                                <input
-                                                    type={showConfirmPw ? 'text' : 'password'}
-                                                    value={confirmPassword}
-                                                    onChange={(e) => setConfirmPassword(e.target.value)}
-                                                    placeholder="Confirm password"
-                                                    className="settings-input"
-                                                    required
-                                                />
-                                                <button
-                                                    type="button"
-                                                    className="settings-input-toggle"
-                                                    onClick={() => setShowConfirmPw(!showConfirmPw)}
-                                                >
+                                                <input type={showConfirmPw ? 'text' : 'password'} value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} placeholder={t('confirmPassword')} className="settings-input" required />
+                                                <button type="button" className="settings-input-toggle" onClick={() => setShowConfirmPw(!showConfirmPw)}>
                                                     {showConfirmPw ? <EyeOff size={16} /> : <Eye size={16} />}
                                                 </button>
                                             </div>
                                         </div>
                                     </div>
 
-                                    {/* Password strength indicator */}
                                     {newPassword && (
                                         <div className="password-strength">
                                             <div className="password-strength-bar">
-                                                <div
-                                                    className={`password-strength-fill ${newPassword.length >= 12 ? 'strong' :
-                                                        newPassword.length >= 8 ? 'medium' : 'weak'
-                                                        }`}
-                                                    style={{
-                                                        width: newPassword.length >= 12 ? '100%' :
-                                                            newPassword.length >= 8 ? '66%' : '33%'
-                                                    }}
-                                                />
+                                                <div className={`password-strength-fill ${newPassword.length >= 12 ? 'strong' : newPassword.length >= 8 ? 'medium' : 'weak'}`}
+                                                    style={{ width: newPassword.length >= 12 ? '100%' : newPassword.length >= 8 ? '66%' : '33%' }} />
                                             </div>
-                                            <span className={
-                                                newPassword.length >= 12 ? 'strong' :
-                                                    newPassword.length >= 8 ? 'medium' : 'weak'
-                                            }>
-                                                {newPassword.length >= 12 ? 'Strong' :
-                                                    newPassword.length >= 8 ? 'Medium' : 'Weak'}
+                                            <span className={newPassword.length >= 12 ? 'strong' : newPassword.length >= 8 ? 'medium' : 'weak'}>
+                                                {newPassword.length >= 12 ? t('strong') : newPassword.length >= 8 ? t('medium') : t('weak')}
                                             </span>
                                         </div>
                                     )}
 
-                                    <button
-                                        type="submit"
-                                        className="settings-btn settings-btn-primary"
-                                        disabled={passwordSaving}
-                                    >
+                                    <button type="submit" className="settings-btn settings-btn-primary" disabled={passwordSaving}>
                                         {passwordSaving ? <Loader2 size={16} className="spinner" /> : <Lock size={16} />}
-                                        {passwordSaving ? 'Changing...' : 'Change Password'}
+                                        {passwordSaving ? t('loading') : t('changePassword')}
                                     </button>
                                 </form>
                             </div>
@@ -426,10 +413,10 @@ export default function Settings() {
                             {/* Change Email */}
                             <div className="settings-card">
                                 <h2 className="settings-card-title">
-                                    <Mail size={20} /> Change Email
+                                    <Mail size={20} /> {t('changeEmail')}
                                 </h2>
                                 <p className="settings-card-desc">
-                                    Current email: <strong>{profile?.email}</strong>. You will be logged out after changing.
+                                    {t('currentEmailLabel')}: <strong>{profile?.email}</strong>
                                 </p>
 
                                 {emailMsg && (
@@ -442,44 +429,22 @@ export default function Settings() {
                                 <form onSubmit={handleChangeEmail} className="settings-form">
                                     <div className="settings-form-row">
                                         <div className="settings-field">
-                                            <label>New Email Address</label>
-                                            <input
-                                                type="email"
-                                                value={newEmail}
-                                                onChange={(e) => setNewEmail(e.target.value)}
-                                                placeholder="new@email.com"
-                                                className="settings-input"
-                                                required
-                                            />
+                                            <label>{t('newEmail')}</label>
+                                            <input type="email" value={newEmail} onChange={(e) => setNewEmail(e.target.value)} placeholder="new@email.com" className="settings-input" required />
                                         </div>
                                         <div className="settings-field">
-                                            <label>Confirm Password</label>
+                                            <label>{t('confirmPassword')}</label>
                                             <div className="settings-input-group">
-                                                <input
-                                                    type={showEmailPw ? 'text' : 'password'}
-                                                    value={emailPassword}
-                                                    onChange={(e) => setEmailPassword(e.target.value)}
-                                                    placeholder="Your password"
-                                                    className="settings-input"
-                                                    required
-                                                />
-                                                <button
-                                                    type="button"
-                                                    className="settings-input-toggle"
-                                                    onClick={() => setShowEmailPw(!showEmailPw)}
-                                                >
+                                                <input type={showEmailPw ? 'text' : 'password'} value={emailPassword} onChange={(e) => setEmailPassword(e.target.value)} placeholder={t('password')} className="settings-input" required />
+                                                <button type="button" className="settings-input-toggle" onClick={() => setShowEmailPw(!showEmailPw)}>
                                                     {showEmailPw ? <EyeOff size={16} /> : <Eye size={16} />}
                                                 </button>
                                             </div>
                                         </div>
                                     </div>
-                                    <button
-                                        type="submit"
-                                        className="settings-btn settings-btn-secondary"
-                                        disabled={emailSaving}
-                                    >
+                                    <button type="submit" className="settings-btn settings-btn-secondary" disabled={emailSaving}>
                                         {emailSaving ? <Loader2 size={16} className="spinner" /> : <Mail size={16} />}
-                                        {emailSaving ? 'Updating...' : 'Update Email'}
+                                        {emailSaving ? t('loading') : t('changeEmail')}
                                     </button>
                                 </form>
                             </div>
@@ -491,12 +456,9 @@ export default function Settings() {
                         <div className="settings-section animate-fadeIn">
                             <div className="settings-card settings-card-danger">
                                 <h2 className="settings-card-title settings-danger-title">
-                                    <AlertTriangle size={20} /> Danger Zone
+                                    <AlertTriangle size={20} /> {t('dangerZone')}
                                 </h2>
-                                <p className="settings-card-desc">
-                                    Once you deactivate your account, you will lose access to all data.
-                                    This action can only be reversed by contacting support.
-                                </p>
+                                <p className="settings-card-desc">{t('dangerDesc')}</p>
 
                                 {deactivateMsg && (
                                     <div className={`settings-msg settings-msg-${deactivateMsg.type}`}>
@@ -507,41 +469,23 @@ export default function Settings() {
 
                                 <div className="settings-form">
                                     <div className="settings-field">
-                                        <label>Enter your password to confirm</label>
+                                        <label>{t('enterPasswordConfirm')}</label>
                                         <div className="settings-input-group">
-                                            <input
-                                                type={showDeactivatePw ? 'text' : 'password'}
-                                                value={deactivatePassword}
-                                                onChange={(e) => setDeactivatePassword(e.target.value)}
-                                                placeholder="Your password"
-                                                className="settings-input"
-                                            />
-                                            <button
-                                                type="button"
-                                                className="settings-input-toggle"
-                                                onClick={() => setShowDeactivatePw(!showDeactivatePw)}
-                                            >
+                                            <input type={showDeactivatePw ? 'text' : 'password'} value={deactivatePassword} onChange={(e) => setDeactivatePassword(e.target.value)} placeholder={t('password')} className="settings-input" />
+                                            <button type="button" className="settings-input-toggle" onClick={() => setShowDeactivatePw(!showDeactivatePw)}>
                                                 {showDeactivatePw ? <EyeOff size={16} /> : <Eye size={16} />}
                                             </button>
                                         </div>
                                     </div>
 
                                     <label className="settings-checkbox">
-                                        <input
-                                            type="checkbox"
-                                            checked={deactivateConfirm}
-                                            onChange={(e) => setDeactivateConfirm(e.target.checked)}
-                                        />
-                                        <span>I understand that this action will deactivate my account</span>
+                                        <input type="checkbox" checked={deactivateConfirm} onChange={(e) => setDeactivateConfirm(e.target.checked)} />
+                                        <span>{t('deactivateCheckbox')}</span>
                                     </label>
 
-                                    <button
-                                        className="settings-btn settings-btn-danger"
-                                        disabled={!deactivateConfirm || !deactivatePassword || deactivating}
-                                        onClick={handleDeactivate}
-                                    >
+                                    <button className="settings-btn settings-btn-danger" disabled={!deactivateConfirm || !deactivatePassword || deactivating} onClick={handleDeactivate}>
                                         {deactivating ? <Loader2 size={16} className="spinner" /> : <AlertTriangle size={16} />}
-                                        {deactivating ? 'Deactivating...' : 'Deactivate Account'}
+                                        {deactivating ? t('loading') : t('deactivateAccount')}
                                     </button>
                                 </div>
                             </div>
