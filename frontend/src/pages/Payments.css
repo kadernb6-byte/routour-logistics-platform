@@ -1,0 +1,301 @@
+/* ============================================
+   Payments Page Styles
+   ============================================ */
+
+/* Stats Grid */
+.payment-stats-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 16px;
+    margin-bottom: 24px;
+}
+
+.payment-stat-card {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 20px;
+}
+
+.payment-stat-icon {
+    width: 48px;
+    height: 48px;
+    border-radius: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+.payment-stat-info {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.payment-stat-value {
+    font-size: 1.3rem;
+    font-weight: 700;
+    color: var(--text-primary);
+}
+
+.payment-stat-label {
+    font-size: 0.78rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+}
+
+/* Filters */
+.payment-filters {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 20px;
+    flex-wrap: wrap;
+}
+
+.filter-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 16px;
+    background: var(--glass-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.filter-btn:hover {
+    border-color: var(--color-primary);
+    color: var(--text-primary);
+}
+
+.filter-btn.active {
+    background: rgba(99, 102, 241, 0.1);
+    border-color: var(--color-primary);
+    color: var(--color-primary);
+    font-weight: 600;
+}
+
+.filter-count {
+    padding: 1px 7px;
+    background: rgba(255, 255, 255, 0.06);
+    border-radius: 5px;
+    font-size: 0.75rem;
+    font-weight: 600;
+}
+
+.filter-btn.active .filter-count {
+    background: rgba(99, 102, 241, 0.15);
+}
+
+/* Empty state */
+.empty-state {
+    padding: 60px 24px;
+    text-align: center;
+}
+
+.empty-state-icon {
+    font-size: 3rem;
+    margin-bottom: 16px;
+}
+
+.empty-state h3 {
+    color: var(--text-primary);
+    margin-bottom: 8px;
+}
+
+/* Payment rows */
+.payments-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.payment-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 20px 24px;
+    border-left: 3px solid transparent;
+    transition: all 0.2s ease;
+}
+
+.payment-row:hover {
+    border-color: var(--color-primary);
+}
+
+.payment-paid {
+    border-left-color: #f59e0b;
+}
+
+.payment-completed {
+    border-left-color: #10b981;
+}
+
+.payment-pending {
+    border-left-color: #94a3b8;
+}
+
+.payment-refunded {
+    border-left-color: #ef4444;
+}
+
+.payment-failed {
+    border-left-color: #ef4444;
+}
+
+.payment-row-left {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+
+.payment-direction {
+    width: 42px;
+    height: 42px;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+.payment-direction.incoming {
+    background: rgba(16, 185, 129, 0.1);
+    color: #10b981;
+}
+
+.payment-direction.outgoing {
+    background: rgba(239, 68, 68, 0.1);
+    color: #ef4444;
+}
+
+.payment-row-info {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+
+.payment-row-title {
+    font-weight: 600;
+    color: var(--text-primary);
+    font-size: 0.95rem;
+}
+
+.payment-row-route {
+    font-size: 0.83rem;
+    color: var(--color-primary);
+}
+
+.payment-row-meta {
+    font-size: 0.78rem;
+    color: var(--text-muted);
+}
+
+.payment-row-right {
+    display: flex;
+    align-items: center;
+    gap: 24px;
+}
+
+.payment-row-amounts {
+    text-align: right;
+}
+
+.payment-row-amount {
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: var(--text-primary);
+}
+
+.payment-row-commission {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    margin-top: 2px;
+}
+
+.payment-row-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 160px;
+    justify-content: flex-end;
+}
+
+/* Status badges */
+.status-badge {
+    padding: 4px 12px;
+    border-radius: 6px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+}
+
+.status-pending {
+    background: rgba(100, 116, 139, 0.1);
+    color: #94a3b8;
+}
+
+.status-paid {
+    background: rgba(245, 158, 11, 0.1);
+    color: #f59e0b;
+}
+
+.status-completed {
+    background: rgba(16, 185, 129, 0.1);
+    color: #10b981;
+}
+
+.status-refunded {
+    background: rgba(239, 68, 68, 0.1);
+    color: #ef4444;
+}
+
+.status-failed {
+    background: rgba(239, 68, 68, 0.1);
+    color: #ef4444;
+}
+
+.status-disputed {
+    background: rgba(168, 85, 247, 0.1);
+    color: #a855f7;
+}
+
+.btn-sm {
+    padding: 6px 14px;
+    font-size: 0.8rem;
+    gap: 6px;
+}
+
+/* Responsive */
+@media (max-width: 1024px) {
+    .payment-stats-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+
+@media (max-width: 768px) {
+    .payment-stats-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .payment-row {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 16px;
+    }
+
+    .payment-row-right {
+        width: 100%;
+        justify-content: space-between;
+    }
+
+    .payment-row-actions {
+        min-width: auto;
+    }
+}

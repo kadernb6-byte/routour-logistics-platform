@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 220" fill="none">
+  <defs>
+    <linearGradient id="grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#0a4d68;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#14b8a6;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+  <!-- Stylized R with road/truck motif -->
+  <g transform="translate(20, 10)">
+    <!-- Main R body -->
+    <path d="M30 20 L30 140 L50 140 L50 90 L90 140 L115 140 L70 85 C95 80 110 65 110 48 C110 25 90 20 65 20 Z M50 38 L65 38 C82 38 90 45 90 55 C90 65 82 72 65 72 L50 72 Z" 
+          fill="url(#grad)" />
+    <!-- Road/route line extending from R -->
+    <path d="M85 85 Q120 75 135 90 Q150 105 140 125" 
+          stroke="url(#grad)" stroke-width="10" fill="none" stroke-linecap="round"/>
+    <!-- Small truck shape -->
+    <rect x="130" y="118" width="22" height="14" rx="3" fill="url(#grad)"/>
+    <rect x="123" y="122" width="10" height="10" rx="2" fill="url(#grad)"/>
+    <circle cx="128" cy="135" r="4" fill="url(#grad)"/>
+    <circle cx="145" cy="135" r="4" fill="url(#grad)"/>
+    <circle cx="128" cy="135" r="2" fill="#0f1729"/>
+    <circle cx="145" cy="135" r="2" fill="#0f1729"/>
+  </g>
+  <!-- ROUTEUR text -->
+  <text x="100" y="195" text-anchor="middle" fill="url(#grad)" 
+        font-family="'Inter', 'Segoe UI', system-ui, sans-serif" 
+        font-weight="800" font-size="30" letter-spacing="4">ROUTEUR</text>
+</svg>
