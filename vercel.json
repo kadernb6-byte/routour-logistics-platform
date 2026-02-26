@@ -1,6 +1,5 @@
 {
     "version": 2,
-    "installCommand": "npm install",
     "builds": [
         {
             "src": "backend/src/index.js",
@@ -10,9 +9,7 @@
             "src": "frontend/package.json",
             "use": "@vercel/static-build",
             "config": {
-                "distDir": "dist",
-                "installCommand": "npm install",
-                "buildCommand": "npm run build"
+                "distDir": "dist"
             }
         }
     ],
@@ -22,8 +19,12 @@
             "destination": "/backend/src/index.js"
         },
         {
+            "source": "/assets/(.*)",
+            "destination": "/frontend/assets/$1"
+        },
+        {
             "source": "/(.*)",
-            "destination": "/index.html"
+            "destination": "/frontend/index.html"
         }
     ]
 }
