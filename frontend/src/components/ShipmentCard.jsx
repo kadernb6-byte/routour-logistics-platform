@@ -1,12 +1,18 @@
 import { Package, MapPin, Calendar, Weight, ArrowRight } from 'lucide-react';
+import { useLang } from '../context/LangContext';
 import './ShipmentCard.css';
 
 export default function ShipmentCard({ shipment, actionLabel, onAction, showShipper = true }) {
-    const pickupDate = shipment.pickup_date
-        ? new Date(shipment.pickup_date).toLocaleDateString('en-DZ', {
-            day: 'numeric', month: 'short', year: 'numeric',
-        })
-        : '—';
+    const { t } = useLang();
+
+    const formatDate = (dateStr) => {
+        if (!dateStr) return '—';
+        try {
+            return new Date(dateStr).toLocaleDateString();
+        } catch {
+            return '—';
+        }
+    };
 
     const initials = shipment.company_name
         ? shipment.company_name.split(' ').map(w => w[0]).join('').slice(0, 2)
@@ -28,15 +34,15 @@ export default function ShipmentCard({ shipment, actionLabel, onAction, showShip
 
             <div className="shipment-card-details">
                 <div className="shipment-detail">
-                    <span className="shipment-detail-label">Pickup</span>
+                    <span className="shipment-detail-label">{t('pickup')}</span>
                     <span className="shipment-detail-value">
                         <Calendar size={13} style={{ marginRight: 4, verticalAlign: 'middle' }} />
-                        {pickupDate}
+                        {formatDate(shipment.pickup_date)}
                     </span>
                 </div>
                 {shipment.weight && (
                     <div className="shipment-detail">
-                        <span className="shipment-detail-label">Weight</span>
+                        <span className="shipment-detail-label">{t('weightCap')}</span>
                         <span className="shipment-detail-value">
                             <Weight size={13} style={{ marginRight: 4, verticalAlign: 'middle' }} />
                             {Number(shipment.weight).toLocaleString()} kg
@@ -45,16 +51,16 @@ export default function ShipmentCard({ shipment, actionLabel, onAction, showShip
                 )}
                 {shipment.budget && (
                     <div className="shipment-detail">
-                        <span className="shipment-detail-label">Budget</span>
+                        <span className="shipment-detail-label">{t('budget')}</span>
                         <span className="shipment-detail-value shipment-budget">
                             {Number(shipment.budget).toLocaleString()} DZD
                         </span>
                     </div>
                 )}
                 <div className="shipment-detail">
-                    <span className="shipment-detail-label">Status</span>
+                    <span className="shipment-detail-label">{t('status')}</span>
                     <span className={`status-badge status-${shipment.status}`}>
-                        {shipment.status}
+                        {t(shipment.status || 'pending')}
                     </span>
                 </div>
             </div>
@@ -70,7 +76,7 @@ export default function ShipmentCard({ shipment, actionLabel, onAction, showShip
                 )}
                 {onAction && (
                     <button className="shipment-action-btn" onClick={() => onAction(shipment.id)}>
-                        {actionLabel || 'View'}
+                        {actionLabel || t('view')}
                     </button>
                 )}
             </div>

@@ -1,15 +1,21 @@
 import { Truck, MapPin, Calendar, Weight, ArrowRight, Package } from 'lucide-react';
+import { useLang } from '../context/LangContext';
 import './TripCard.css';
 
 export default function TripCard({ trip, onMatch, onBook, showCarrier = true }) {
-    const departureDate = new Date(trip.departure_date).toLocaleDateString('en-DZ', {
-        day: 'numeric',
-        month: 'short',
-        year: 'numeric',
-    });
+    const { t } = useLang();
 
-    const initials = trip.company_name
-        ? trip.company_name.split(' ').map(w => w[0]).join('').slice(0, 2)
+    const formatDate = (dateStr) => {
+        if (!dateStr) return '—';
+        try {
+            return new Date(dateStr).toLocaleDateString();
+        } catch {
+            return '—';
+        }
+    };
+
+    const initials = trip.carrier_name
+        ? trip.carrier_name.split(' ').map(w => w[0]).join('').slice(0, 2)
         : '??';
 
     return (
@@ -31,40 +37,40 @@ export default function TripCard({ trip, onMatch, onBook, showCarrier = true }) 
 
             <div className="trip-card-details">
                 <div className="trip-detail">
-                    <span className="trip-detail-label">Departure</span>
+                    <span className="trip-detail-label">{t('departureDate')}</span>
                     <span className="trip-detail-value">
                         <Calendar size={14} style={{ marginRight: 4, verticalAlign: 'middle' }} />
-                        {departureDate}
+                        {formatDate(trip.departure_date)}
                     </span>
                 </div>
                 <div className="trip-detail">
-                    <span className="trip-detail-label">Capacity</span>
+                    <span className="trip-detail-label">{t('availableCapacity')}</span>
                     <span className="trip-detail-value">
                         <Weight size={14} style={{ marginRight: 4, verticalAlign: 'middle' }} />
-                        {Number(trip.available_capacity).toLocaleString()} kg
+                        {Number(trip.capacity || trip.available_capacity).toLocaleString()} kg
                     </span>
                 </div>
                 {trip.price_per_kg && (
                     <div className="trip-detail">
-                        <span className="trip-detail-label">Price/kg</span>
+                        <span className="trip-detail-label">{t('pricePerKg')}</span>
                         <span className="trip-detail-value">
                             {Number(trip.price_per_kg).toLocaleString()} DZD
                         </span>
                     </div>
                 )}
                 <div className="trip-detail">
-                    <span className="trip-detail-label">Status</span>
+                    <span className="trip-detail-label">{t('status')}</span>
                     <span className={`status-badge status-${trip.status}`}>
-                        {trip.status}
+                        {t(trip.status || 'active')}
                     </span>
                 </div>
             </div>
 
             <div className="trip-card-footer">
-                {showCarrier && trip.company_name ? (
+                {showCarrier && trip.carrier_name ? (
                     <div className="trip-carrier-info">
                         <div className="trip-carrier-avatar">{initials}</div>
-                        <span>{trip.company_name}</span>
+                        <span>{trip.carrier_name}</span>
                     </div>
                 ) : (
                     <div />
@@ -72,12 +78,12 @@ export default function TripCard({ trip, onMatch, onBook, showCarrier = true }) 
                 <div style={{ display: 'flex', gap: 8 }}>
                     {onMatch && (
                         <button className="trip-match-btn" onClick={() => onMatch(trip.id)}>
-                            🤝 Find Matches
+                            🤝 {t('findMatches')}
                         </button>
                     )}
                     {onBook && (
                         <button className="trip-book-btn" onClick={() => onBook(trip)}>
-                            <Package size={14} /> Book Shipment
+                            <Package size={14} /> {t('bookShipment')}
                         </button>
                     )}
                 </div>
@@ -85,4 +91,3 @@ export default function TripCard({ trip, onMatch, onBook, showCarrier = true }) 
         </div>
     );
 }
-

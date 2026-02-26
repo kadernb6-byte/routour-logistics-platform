@@ -53,14 +53,15 @@ const Sidebar = ({ isOpen, onClose }) => {
         },
     ];
 
-    const displayName = user?.firstName && user?.lastName
-        ? `${user.firstName} ${user.lastName}`
+    const displayName = (user?.firstName || user?.lastName)
+        ? `${user.firstName || ''} ${user.lastName || ''}`.trim()
         : user?.companyName || user?.email || 'User';
 
     const getInitials = () => {
         if (!user) return 'U';
-        if (user.firstName) return user.firstName[0].toUpperCase();
-        return user.companyName?.[0]?.toUpperCase() || user.email?.[0]?.toUpperCase() || 'U';
+        const namePart = user.firstName || user.lastName || user.companyName;
+        if (namePart) return namePart[0].toUpperCase();
+        return user.email?.[0]?.toUpperCase() || 'U';
     };
 
     return (

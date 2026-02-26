@@ -171,7 +171,9 @@ export default function Dashboard() {
                     <div className="hero-text">
                         <span className="hero-greeting">👋 {t('welcomeBack')},</span>
                         <h1 className="hero-name">
-                            {user?.companyName || user?.name || 'User'}
+                            {(user?.firstName || user?.lastName)
+                                ? `${user.firstName || ''} ${user.lastName || ''}`.trim()
+                                : user?.companyName || user?.email || 'User'}
                         </h1>
                         <p className="hero-subtitle">
                             {isCarrier ? t('carrierWelcome') : t('shipperWelcome')}

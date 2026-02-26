@@ -1,15 +1,17 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
-import api from '../services/api';
+import { useLang } from '../context/LangContext';
+import { supabase } from '../services/supabaseClient';
 import {
     DollarSign, ArrowUpRight, ArrowDownLeft, CheckCircle,
-    Clock, Loader2, AlertCircle, TrendingUp, CreditCard,
-    Receipt, Banknote,
+    Clock, Loader2, AlertCircle, CreditCard,
+    Receipt,
 } from 'lucide-react';
 import './Payments.css';
 
 export default function Payments() {
     const { user } = useAuth();
+    const { t } = useLang();
     const [payments, setPayments] = useState([]);
     const [stats, setStats] = useState(null);
     const [loading, setLoading] = useState(true);
@@ -27,12 +29,38 @@ export default function Payments() {
     const fetchData = async () => {
         setLoading(true);
         try {
-            const [paymentsRes, statsRes] = await Promise.all([
-                api.get('/payments'),
-                api.get('/payments/stats'),
-            ]);
-            setPayments(paymentsRes.data || []);
-            setStats(statsRes.data || null);
+            // In a real app, we'd join with shipments table to get more info
+            // For now, let's fetch payments related to the user's company
+            let query = supabase
+                .from('payments')
+                .select('*, sender:companies!sender_company_id(name), receiver:companies!receiver_company_id(name)');
+            
+            if (isCarrier) {
+                query = query.eq('receiver_company_id', user.companyId);
+            } else {
+                query = query.eq('sender_company_id', user.companyId);
+            }
+
+            const { data, error: payError } = await query.order('created_at', { ascending: false });
+            if (payError) throw payError;
+            
+            setPayments(data || []);
+            
+            // Calculate stats
+            const totalEarned = data.filter(p => p.receiver_company_id === user.companyId && (p.status === 'paid' || p.status === 'completed'))
+                                    .reduce((sum, p) => sum + (Number(p.amount) - Number(p.commission || 0)), 0);
+            const totalSpent = data.filter(p => p.sender_company_id === user.companyId)
+                                   .reduce((sum, p) => sum + Number(p.amount), 0);
+            const activeCount = data.filter(p => p.status === 'pending' || p.status === 'paid').length;
+            const completedCount = data.filter(p => p.status === 'completed').length;
+
+            setStats({
+                total_earned: totalEarned,
+                total_spent: totalSpent,
+                active_count: activeCount,
+                completed_count: completedCount,
+                total_transactions: data.length
+            });
         } catch (err) {
             setError(err.message);
         } finally {
@@ -44,8 +72,13 @@ export default function Payments() {
         setCompleting(paymentId);
         setError(null);
         try {
-            await api.put(`/payments/${paymentId}/complete`);
-            setSuccessMsg('Payment completed — delivery confirmed!');
+            const { error } = await supabase
+                .from('payments')
+                .update({ status: 'completed' })
+                .eq('id', paymentId);
+            
+            if (error) throw error;
+            setSuccessMsg(t('paymentCompletedMsg'));
             fetchData();
         } catch (err) {
             setError(err.message);
@@ -66,7 +99,7 @@ export default function Payments() {
         return (
             <div className="dashboard-loading">
                 <Loader2 size={40} className="spinner" />
-                <p>Loading payments...</p>
+                <p>{t('loading')}</p>
             </div>
         );
     }
@@ -75,8 +108,8 @@ export default function Payments() {
         <div className="animate-fadeIn">
             <div className="page-header">
                 <div>
-                    <h1><CreditCard size={24} /> Payments</h1>
-                    <p>{isCarrier ? 'Track your earnings and incoming payments' : 'Manage your shipment payments'}</p>
+                    <h1><CreditCard size={24} /> {t('payments')}</h1>
+                    <p>{isCarrier ? t('carrierPaymentsDesc') : t('shipperPaymentsDesc')}</p>
                 </div>
             </div>
 
@@ -105,7 +138,7 @@ export default function Payments() {
                                 {formatAmount(isCarrier ? stats.total_earned : stats.total_spent)}
                             </span>
                             <span className="payment-stat-label">
-                                {isCarrier ? 'Total Earned' : 'Total Spent'}
+                                {isCarrier ? t('totalEarned') : t('totalSpent')}
                             </span>
                         </div>
                     </div>
@@ -116,9 +149,9 @@ export default function Payments() {
                         </div>
                         <div className="payment-stat-info">
                             <span className="payment-stat-value">
-                                {Number(stats.total_paid || 0) + Number(stats.total_received || 0)}
+                                {stats.total_transactions}
                             </span>
-                            <span className="payment-stat-label">Total Transactions</span>
+                            <span className="payment-stat-label">{t('totalTransactions')}</span>
                         </div>
                     </div>
 
@@ -128,7 +161,7 @@ export default function Payments() {
                         </div>
                         <div className="payment-stat-info">
                             <span className="payment-stat-value">{stats.active_count || 0}</span>
-                            <span className="payment-stat-label">In Progress</span>
+                            <span className="payment-stat-label">{t('inProgress')}</span>
                         </div>
                     </div>
 
@@ -138,7 +171,7 @@ export default function Payments() {
                         </div>
                         <div className="payment-stat-info">
                             <span className="payment-stat-value">{stats.completed_count || 0}</span>
-                            <span className="payment-stat-label">Completed</span>
+                            <span className="payment-stat-label">{t('statusCompleted')}</span>
                         </div>
                     </div>
                 </div>
@@ -152,7 +185,7 @@ export default function Payments() {
                         className={`filter-btn ${filter === f ? 'active' : ''}`}
                         onClick={() => setFilter(f)}
                     >
-                        {f === 'all' ? 'All' : f.charAt(0).toUpperCase() + f.slice(1)}
+                        {f === 'all' ? t('all') : t(f)}
                         {f !== 'all' && (
                             <span className="filter-count">
                                 {payments.filter(p => p.status === f).length}
@@ -166,11 +199,11 @@ export default function Payments() {
             {filteredPayments.length === 0 ? (
                 <div className="glass-card empty-state">
                     <div className="empty-state-icon">💰</div>
-                    <h3>No payments yet</h3>
+                    <h3>{t('noPaymentsYet')}</h3>
                     <p style={{ color: 'var(--text-muted)' }}>
                         {isCarrier
-                            ? 'When shippers pay for your deliveries, they\'ll appear here.'
-                            : 'Pay for shipments to see your transaction history.'}
+                            ? t('noPaymentsCarrier')
+                            : t('noPaymentsShipper')}
                     </p>
                 </div>
             ) : (
@@ -185,13 +218,10 @@ export default function Payments() {
                                 </div>
                                 <div className="payment-row-info">
                                     <div className="payment-row-title">
-                                        {payment.shipment_title || 'Shipment Payment'}
-                                    </div>
-                                    <div className="payment-row-route">
-                                        {payment.origin} → {payment.destination}
+                                        {payment.description || t('shipmentPayment')}
                                     </div>
                                     <div className="payment-row-meta">
-                                        {isCarrier ? payment.payer_company : payment.payee_company}
+                                        {isCarrier ? payment.sender?.name : payment.receiver?.name}
                                         {' · '}
                                         {new Date(payment.created_at).toLocaleDateString('en-DZ', {
                                             day: 'numeric', month: 'short', year: 'numeric',
@@ -203,23 +233,18 @@ export default function Payments() {
                             <div className="payment-row-right">
                                 <div className="payment-row-amounts">
                                     <div className="payment-row-amount">
-                                        {isCarrier ? formatAmount(payment.net_amount) : formatAmount(payment.amount)}
+                                        {formatAmount(payment.amount)}
                                     </div>
-                                    {!isCarrier && (
-                                        <div className="payment-row-commission">
-                                            Commission: {formatAmount(payment.commission)}
-                                        </div>
-                                    )}
                                     {isCarrier && (
                                         <div className="payment-row-commission">
-                                            Total: {formatAmount(payment.amount)} (−{formatAmount(payment.commission)} fee)
+                                            {t('fee')}: -{formatAmount(payment.commission || 0)}
                                         </div>
                                     )}
                                 </div>
 
                                 <div className="payment-row-actions">
                                     <span className={`status-badge status-${payment.status}`}>
-                                        {payment.status}
+                                        {t(payment.status)}
                                     </span>
                                     {isCarrier && payment.status === 'paid' && (
                                         <button
@@ -230,7 +255,7 @@ export default function Payments() {
                                             {completing === payment.id
                                                 ? <Loader2 size={14} className="spinner" />
                                                 : <CheckCircle size={14} />}
-                                            Confirm Delivery
+                                            {t('confirmDelivery')}
                                         </button>
                                     )}
                                 </div>
