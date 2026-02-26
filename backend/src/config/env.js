@@ -4,7 +4,13 @@
 // Centralizes all environment variables in one place.
 
 const path = require('path');
-require('dotenv').config({ path: path.resolve(__dirname, '../../../.env') });
+const fs = require('fs');
+
+// Load .env file if it exists (not needed on Vercel — env vars are injected)
+const envPath = path.resolve(__dirname, '../../../.env');
+if (fs.existsSync(envPath)) {
+    require('dotenv').config({ path: envPath });
+}
 
 const env = {
     NODE_ENV: process.env.NODE_ENV || 'development',

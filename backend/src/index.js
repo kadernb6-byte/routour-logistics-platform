@@ -24,7 +24,12 @@ app.use(helmet());
 
 // cors: allows requests from the frontend origin
 app.use(cors({
-  origin: env.CORS_ORIGIN,
+  origin: function (origin, callback) {
+    // Allow requests with no origin (mobile apps, curl, etc.)
+    if (!origin) return callback(null, true);
+    // In production, allow any origin (or specify your frontend domain)
+    return callback(null, true);
+  },
   credentials: true,
 }));
 
@@ -68,24 +73,24 @@ app.use(notFound);
 app.use(errorHandler);
 
 // --------------- Start Server ---------------
-const startServer = async () => {
-  try {
-    // Test database connection on startup
-    await testConnection();
+// Only listen when running directly (not on Vercel serverless)
+if (!process.env.VERCEL) {
+  const startServer = async () => {
+    try {
+      await testConnection();
+      app.listen(env.PORT, () => {
+        console.log(`\n🚀 Routeur Logistics API`);
+        console.log(`   Environment : ${env.NODE_ENV}`);
+        console.log(`   Port        : ${env.PORT}`);
+        console.log(`   API URL     : http://localhost:${env.PORT}${env.API_PREFIX}`);
+        console.log(`   Health      : http://localhost:${env.PORT}/health\n`);
+      });
+    } catch (error) {
+      console.error('❌ Failed to start server:', error.message);
+      process.exit(1);
+    }
+  };
+  startServer();
+}
 
-    app.listen(env.PORT, () => {
-      console.log(`\n🚀 Routeur Logistics API`);
-      console.log(`   Environment : ${env.NODE_ENV}`);
-      console.log(`   Port        : ${env.PORT}`);
-      console.log(`   API URL     : http://localhost:${env.PORT}${env.API_PREFIX}`);
-      console.log(`   Health      : http://localhost:${env.PORT}/health\n`);
-    });
-  } catch (error) {
-    console.error('❌ Failed to start server:', error.message);
-    process.exit(1);
-  }
-};
-
-startServer();
-
-module.exports = app; // Export for testing
+module.exports = app;
