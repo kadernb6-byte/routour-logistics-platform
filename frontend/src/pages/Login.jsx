@@ -1,12 +1,14 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { useLang } from '../context/LangContext';
 import { Mail, Lock, Eye, EyeOff } from 'lucide-react';
 import logo from '../assets/logo.svg';
 
 const Login = () => {
     const navigate = useNavigate();
     const { login } = useAuth();
+    const { t } = useLang();
 
     const [formData, setFormData] = useState({ email: '', password: '' });
     const [showPassword, setShowPassword] = useState(false);
@@ -41,8 +43,8 @@ const Login = () => {
                     <img src={logo} alt="Routeur" className="auth-logo-image" />
                 </div>
 
-                <h1 className="auth-title">Welcome back</h1>
-                <p className="auth-subtitle">Sign in to your logistics dashboard</p>
+                <h1 className="auth-title">{t('welcomeBack')}</h1>
+                <p className="auth-subtitle">{t('loginSubtitle')}</p>
 
                 {/* Error message */}
                 {error && (
@@ -64,7 +66,7 @@ const Login = () => {
 
                 <form onSubmit={handleSubmit}>
                     <div className="form-group">
-                        <label className="form-label" htmlFor="login-email">Email address</label>
+                        <label className="form-label" htmlFor="login-email">{t('email')}</label>
                         <div style={{ position: 'relative' }}>
                             <Mail
                                 size={18}
@@ -91,7 +93,7 @@ const Login = () => {
                     </div>
 
                     <div className="form-group">
-                        <label className="form-label" htmlFor="login-password">Password</label>
+                        <label className="form-label" htmlFor="login-password">{t('password')}</label>
                         <div style={{ position: 'relative' }}>
                             <Lock
                                 size={18}
@@ -141,13 +143,13 @@ const Login = () => {
                         id="login-submit"
                         style={{ marginTop: '8px' }}
                     >
-                        {loading ? 'Signing in...' : 'Sign In'}
+                        {loading ? t('loading') : t('login')}
                     </button>
                 </form>
 
                 <div className="auth-footer">
-                    Don't have an account?{' '}
-                    <Link to="/signup">Create one</Link>
+                    {t('noAccount')}{' '}
+                    <Link to="/signup">{t('createAccount')}</Link>
                 </div>
             </div>
         </div>

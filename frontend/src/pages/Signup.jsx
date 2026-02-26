@@ -1,12 +1,14 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { useLang } from '../context/LangContext';
 import { Mail, Lock, Building2, Eye, EyeOff, Truck, Package } from 'lucide-react';
 import logo from '../assets/logo.svg';
 
 const Signup = () => {
     const navigate = useNavigate();
     const { signup } = useAuth();
+    const { t } = useLang();
 
     const [formData, setFormData] = useState({
         email: '',
@@ -46,8 +48,8 @@ const Signup = () => {
                     <img src={logo} alt="Routeur" className="auth-logo-image" />
                 </div>
 
-                <h1 className="auth-title">Create your account</h1>
-                <p className="auth-subtitle">Get started with freight logistics</p>
+                <h1 className="auth-title">{t('createAccount')}</h1>
+                <p className="auth-subtitle">{t('signupSubtitle')}</p>
 
                 {/* Error message */}
                 {error && (
@@ -70,7 +72,7 @@ const Signup = () => {
                 <form onSubmit={handleSubmit}>
                     {/* Role Toggle */}
                     <div style={{ marginBottom: '4px' }}>
-                        <label className="form-label">I am a</label>
+                        <label className="form-label">{t('iAmA')}</label>
                     </div>
                     <div className="role-toggle">
                         <button
@@ -80,7 +82,7 @@ const Signup = () => {
                             id="role-shipper"
                         >
                             <Package size={16} style={{ display: 'inline', verticalAlign: '-3px', marginRight: '6px' }} />
-                            Shipper
+                            {t('shipper')}
                         </button>
                         <button
                             type="button"
@@ -89,12 +91,12 @@ const Signup = () => {
                             id="role-carrier"
                         >
                             <Truck size={16} style={{ display: 'inline', verticalAlign: '-3px', marginRight: '6px' }} />
-                            Carrier
+                            {t('carrier')}
                         </button>
                     </div>
 
                     <div className="form-group">
-                        <label className="form-label" htmlFor="signup-company">Company name</label>
+                        <label className="form-label" htmlFor="signup-company">{t('companyName')}</label>
                         <div style={{ position: 'relative' }}>
                             <Building2
                                 size={18}
@@ -121,7 +123,7 @@ const Signup = () => {
                     </div>
 
                     <div className="form-group">
-                        <label className="form-label" htmlFor="signup-email">Email address</label>
+                        <label className="form-label" htmlFor="signup-email">{t('email')}</label>
                         <div style={{ position: 'relative' }}>
                             <Mail
                                 size={18}
@@ -148,7 +150,7 @@ const Signup = () => {
                     </div>
 
                     <div className="form-group">
-                        <label className="form-label" htmlFor="signup-password">Password</label>
+                        <label className="form-label" htmlFor="signup-password">{t('password')}</label>
                         <div style={{ position: 'relative' }}>
                             <Lock
                                 size={18}
@@ -199,13 +201,13 @@ const Signup = () => {
                         id="signup-submit"
                         style={{ marginTop: '8px' }}
                     >
-                        {loading ? 'Creating account...' : 'Create Account'}
+                        {loading ? t('loading') : t('createAccount')}
                     </button>
                 </form>
 
                 <div className="auth-footer">
-                    Already have an account?{' '}
-                    <Link to="/login">Sign in</Link>
+                    {t('alreadyHaveAccount')}{' '}
+                    <Link to="/login">{t('login')}</Link>
                 </div>
             </div>
         </div>
